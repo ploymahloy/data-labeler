@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { consumeReturnPath } from "../auth/returnTo";
 
 /** Landing page for the Cognito Hosted UI redirect (authorization code + PKCE). */
 export const AuthCallbackPage = () => {
@@ -20,7 +21,7 @@ export const AuthCallbackPage = () => {
       return;
     }
     completeCognitoLogin(code, state)
-      .then(() => navigate("/", { replace: true }))
+      .then(() => navigate(consumeReturnPath(), { replace: true }))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Sign-in failed"));
   }, [completeCognitoLogin, navigate]);
 

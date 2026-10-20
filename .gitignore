@@ -16,3 +16,6 @@ frontend/playwright-report/
 *.tfstate
 *.tfstate.*
 .DS_Store
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/cache/

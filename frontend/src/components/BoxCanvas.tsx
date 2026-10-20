@@ -21,10 +21,11 @@ type Props = {
   children?: ReactNode;
 };
 
-type Drag =
+type Drag = { pointerId: number | undefined } & (
   | { mode: "draw"; start: Point }
   | { mode: "move"; id: string; start: Point; origin: Rect }
-  | { mode: "resize"; id: string; handle: Handle; start: Point; origin: Rect };
+  | { mode: "resize"; id: string; handle: Handle; start: Point; origin: Rect }
+);
 
 const pct = (v: number): string => `${v * 100}%`;
 
@@ -66,35 +67,61 @@ export const BoxCanvas = ({
   };
 
   const capture = (e: ReactPointerEvent) => {
-    containerRef.current?.setPointerCapture?.(e.pointerId);
+    try {
+      containerRef.current?.setPointerCapture?.(e.pointerId);
+    } catch {
+      // The pointer is already gone (a very short tap, or an input source that does not support
+      // capture). The drag still works through the events that bubble to the canvas.
+    }
+  };
+
+  // One pointer at a time. A second finger (pinch, palm) must not start a new drag over the
+  // one in progress, and moves/ups from any other pointer are not ours.
+  const idle = (e: ReactPointerEvent): boolean => !readOnly && e.button === 0 && !dragRef.current;
+  const ours = (e: ReactPointerEvent, drag: Drag): boolean =>
+    drag.pointerId === undefined || e.pointerId === drag.pointerId;
+
+  const release = (e: ReactPointerEvent) => {
+    try {
+      containerRef.current?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // Already released (the browser drops capture itself on pointerup/cancel).
+    }
   };
 
   const onBackgroundDown = (e: ReactPointerEvent) => {
-    if (readOnly || e.button !== 0) return;
+    if (!idle(e)) return;
     onSelect?.(null);
     capture(e);
-    dragRef.current = { mode: "draw", start: toPoint(e) };
+    dragRef.current = { mode: "draw", start: toPoint(e), pointerId: e.pointerId };
     setDrawing(null);
   };
 
   const onBoxDown = (e: ReactPointerEvent, box: Box) => {
-    if (readOnly || e.button !== 0) return;
+    if (!idle(e)) return;
     e.stopPropagation();
     onSelect?.(box.id);
     capture(e);
-    dragRef.current = { mode: "move", id: box.id, start: toPoint(e), origin: box };
+    dragRef.current = { mode: "move", id: box.id, start: toPoint(e), origin: box, pointerId: e.pointerId };
   };
 
   const onHandleDown = (e: ReactPointerEvent, box: Box, handle: Handle) => {
-    if (readOnly || e.button !== 0) return;
+    if (!idle(e)) return;
     e.stopPropagation();
     capture(e);
-    dragRef.current = { mode: "resize", id: box.id, handle, start: toPoint(e), origin: box };
+    dragRef.current = {
+      mode: "resize",
+      id: box.id,
+      handle,
+      start: toPoint(e),
+      origin: box,
+      pointerId: e.pointerId,
+    };
   };
 
   const onMove = (e: ReactPointerEvent) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag || !ours(e, drag)) return;
     const p = toPoint(e);
     if (drag.mode === "draw") {
       setDrawing(rectFromPoints(drag.start, p));
@@ -108,12 +135,26 @@ export const BoxCanvas = ({
 
   const finish = (e: ReactPointerEvent) => {
     const drag = dragRef.current;
+    if (!drag || !ours(e, drag)) return;
     dragRef.current = null;
-    containerRef.current?.releasePointerCapture?.(e.pointerId);
-    if (drag?.mode === "draw") {
+    release(e);
+    if (drag.mode === "draw") {
       const rect = rectFromPoints(drag.start, toPoint(e));
       setDrawing(null);
       if (isLargeEnough(rect)) onCreate?.(rect);
+    }
+  };
+
+  /** The system took the gesture (scroll, notification, palm rejection): undo, don't commit. */
+  const cancel = (e: ReactPointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || !ours(e, drag)) return;
+    dragRef.current = null;
+    release(e);
+    setDrawing(null);
+    if (drag.mode !== "draw") {
+      const { x, y, w, h } = drag.origin;
+      onUpdate?.(drag.id, { x, y, w, h });
     }
   };
 
@@ -125,7 +166,7 @@ export const BoxCanvas = ({
       onPointerDown={onBackgroundDown}
       onPointerMove={onMove}
       onPointerUp={finish}
-      onPointerCancel={finish}
+      onPointerCancel={cancel}
     >
       <img className="canvas__image" src={imageUrl} alt={alt} draggable={false} />
 

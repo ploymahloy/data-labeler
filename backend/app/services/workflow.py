@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.schemas import AnnotationIn
 from app.services.annotations import save_annotations
+from app.services.batches import lock_open_batch
 
 # --- helpers ---------------------------------------------------------------------
 
@@ -168,6 +169,7 @@ async def _claim(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"claim:{kind.value}:{user_sub}"},
     )
+    await lock_open_batch(session, batch_id)
     await reap_expired(session, user_sub)
 
     existing = await session.scalar(

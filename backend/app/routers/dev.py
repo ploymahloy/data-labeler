@@ -13,5 +13,7 @@ router = APIRouter(prefix="/dev", tags=["dev"])
 async def dev_login(
     body: DevLoginRequest, settings: Settings = Depends(get_settings)
 ) -> DevLoginResponse:
-    token = mint_dev_token(settings, body.email, list(body.roles))
+    token = mint_dev_token(
+        settings, body.email, list(body.roles), ttl_seconds=body.ttl_seconds or 8 * 3600
+    )
     return DevLoginResponse(token=token, sub=f"dev-{body.email}")

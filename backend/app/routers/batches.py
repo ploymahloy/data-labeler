@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,8 +9,10 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.errors import not_found
 from app.models import Batch, Image, ImageStatus, Label, Role
+from app.ratelimit import rate_limit
 from app.schemas import (
     BatchCreate,
+    BatchDeleteProgress,
     BatchOut,
     CompleteRequest,
     CompleteResponse,
@@ -19,6 +21,7 @@ from app.schemas import (
     UploadRequest,
     UploadResponse,
 )
+from app.services import batches as batch_service
 from app.services import uploads
 from app.storage import Storage, get_storage
 
@@ -48,6 +51,7 @@ def _out(batch: Batch, counts: dict[str, int]) -> BatchOut:
         status=batch.status,
         created_at=batch.created_at,
         created_by=batch.created_by,
+        archived_at=batch.archived_at,
         counts=counts,
     )
 
@@ -67,10 +71,15 @@ async def create_batch(
 
 @router.get("", response_model=list[BatchOut])
 async def list_batches(
-    _: CurrentUser = Depends(current_user), session: AsyncSession = Depends(get_session)
+    include_archived: bool = Query(False),
+    _: CurrentUser = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> list[BatchOut]:
     async with session.begin():
-        batches = (await session.scalars(select(Batch).order_by(Batch.created_at.desc()))).all()
+        query = select(Batch).order_by(Batch.created_at.desc())
+        if not include_archived:
+            query = query.where(Batch.status != "archived")
+        batches = (await session.scalars(query)).all()
         counts = await _counts(session, [b.id for b in batches])
     return [_out(b, counts[b.id]) for b in batches]
 
@@ -89,7 +98,47 @@ async def get_batch(
     return _out(batch, counts[batch_id])
 
 
-@router.post("/{batch_id}/uploads", response_model=UploadResponse)
+@router.post("/{batch_id}/archive", response_model=BatchOut)
+async def archive_batch(
+    batch_id: uuid.UUID,
+    user: CurrentUser = Depends(require_role(Role.admin)),
+    session: AsyncSession = Depends(get_session),
+) -> BatchOut:
+    """Admin: stop all work in the batch. Active leases return to their queues."""
+    async with session.begin():
+        await batch_service.archive_batch(session, batch_id, user.sub)
+    return await get_batch(batch_id, user, session)
+
+
+@router.post("/{batch_id}/unarchive", response_model=BatchOut)
+async def unarchive_batch(
+    batch_id: uuid.UUID,
+    user: CurrentUser = Depends(require_role(Role.admin)),
+    session: AsyncSession = Depends(get_session),
+) -> BatchOut:
+    async with session.begin():
+        await batch_service.unarchive_batch(session, batch_id)
+    return await get_batch(batch_id, user, session)
+
+
+@router.delete("/{batch_id}", response_model=BatchDeleteProgress)
+async def delete_batch(
+    batch_id: uuid.UUID,
+    _: CurrentUser = Depends(require_role(Role.admin)),
+    session: AsyncSession = Depends(get_session),
+    storage: Storage = Depends(get_storage),
+    settings: Settings = Depends(get_settings),
+) -> BatchDeleteProgress:
+    """Admin: permanently delete an archived batch. Call again while `done` is false."""
+    done, objects, images = await batch_service.delete_batch(session, storage, settings, batch_id)
+    return BatchDeleteProgress(done=done, objects_deleted=objects, images_deleted=images)
+
+
+@router.post(
+    "/{batch_id}/uploads",
+    response_model=UploadResponse,
+    dependencies=[Depends(rate_limit("presign"))],
+)
 async def request_uploads(
     batch_id: uuid.UUID,
     body: UploadRequest,
@@ -104,7 +153,11 @@ async def request_uploads(
     return UploadResponse(tickets=tickets)
 
 
-@router.post("/{batch_id}/uploads/complete", response_model=CompleteResponse)
+@router.post(
+    "/{batch_id}/uploads/complete",
+    response_model=CompleteResponse,
+    dependencies=[Depends(rate_limit("presign"))],
+)
 async def complete_uploads(
     batch_id: uuid.UUID,
     body: CompleteRequest,

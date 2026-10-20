@@ -3,8 +3,18 @@ kind: ConfigMap
 metadata:
   name: labeler-api-config
 data:
+  ENVIRONMENT: "production"
   AUTH_MODE: "cognito"
+  # Verify the RDS server certificate and hostname (CA bundle is baked into the image).
+  DB_SSL_MODE: "verify-full"
+  DB_SSL_CA_FILE: "/srv/certs/rds-global-bundle.pem"
+  # 20 pods x 17 connections = 340 of RDS max_connections (see README, "Database connections").
+  MAX_API_PODS: "20"
+  DB_CONNECTION_BUDGET: "340"
+  DB_POOL_TIMEOUT: "10"
   AWS_REGION: "us-east-1"
+  # The reaper publishes its heartbeat metrics straight to CloudWatch (namespace DataLabeler).
+  METRICS_SINK: "cloudwatch"
   COGNITO_REGION: "us-east-1"
   COGNITO_USER_POOL_ID: "REPLACE_ME"
   COGNITO_CLIENT_ID: "REPLACE_ME"

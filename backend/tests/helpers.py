@@ -21,8 +21,9 @@ def make_token(
     issuer: str = ISSUER,
     expires_in: int = 3600,
     token_use: str = "id",
+    issued_at: int | None = None,
 ) -> str:
-    now = int(time.time())
+    now = int(time.time()) if issued_at is None else issued_at
     return jwt.encode(
         {
             "sub": f"sub-{email}",
@@ -32,7 +33,7 @@ def make_token(
             "iss": issuer,
             "token_use": token_use,
             "iat": now,
-            "exp": now + expires_in,
+            "exp": int(time.time()) + expires_in,
         },
         key,
         algorithm="RS256",
@@ -40,8 +41,8 @@ def make_token(
     )
 
 
-def auth(email: str, *roles: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {make_token(email, list(roles))}"}
+def auth(email: str, *roles: str, issued_at: int | None = None) -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_token(email, list(roles), issued_at=issued_at)}"}
 
 
 def sub_of(email: str) -> str:

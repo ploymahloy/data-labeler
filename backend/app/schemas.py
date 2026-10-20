@@ -26,7 +26,16 @@ class BatchOut(BaseModel):
     status: str
     created_at: datetime
     created_by: str
+    archived_at: datetime | None = None
     counts: dict[str, int] = {}
+
+
+class BatchDeleteProgress(BaseModel):
+    """Deleting a large batch is resumable: call again until `done` is true."""
+
+    done: bool
+    objects_deleted: int
+    images_deleted: int
 
 
 # --- uploads ---------------------------------------------------------------------
@@ -67,6 +76,8 @@ class CompleteResult(BaseModel):
     result: Literal["ready", "duplicate", "missing", "invalid"]
     duplicate_of: uuid.UUID | None = None
     detail: str | None = None
+    # Machine-readable reason for `invalid` results, e.g. "image_too_large".
+    code: str | None = None
 
 
 class CompleteResponse(BaseModel):
@@ -198,8 +209,42 @@ class ReviewStats(BaseModel):
 class DevLoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     roles: list[Literal["admin", "labeler", "reviewer"]] = ["labeler"]
+    # Short-lived tokens let tests exercise expiry. Dev mode only (route not mounted otherwise).
+    ttl_seconds: int | None = Field(default=None, ge=1, le=8 * 3600)
 
 
 class DevLoginResponse(BaseModel):
     token: str
     sub: str
+
+
+# --- admin: users ------------------------------------------------------------------
+RoleName = Literal["admin", "labeler", "reviewer"]
+
+
+class AdminUserOut(BaseModel):
+    sub: str
+    email: str
+    enabled: bool
+    status: str
+    roles: list[str]
+    created_at: datetime | None = None
+
+
+class AdminUsersPage(BaseModel):
+    users: list[AdminUserOut]
+    next_token: str | None = None
+
+
+class AdminUserCreate(BaseModel):
+    email: str = Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    roles: list[RoleName] = Field(default_factory=lambda: ["labeler"])
+
+    @field_validator("email")
+    @classmethod
+    def _normalize(cls, v: str) -> str:
+        return v.strip().lower()
+
+
+class AdminRolesUpdate(BaseModel):
+    roles: list[RoleName]

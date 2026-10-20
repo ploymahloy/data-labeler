@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -62,6 +64,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), default="")
     roles: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # False = refused by the API immediately, even with a still-valid ID token.
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # ID tokens issued before this moment are rejected (401) so clients refresh their groups.
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Batch(Base):
@@ -72,8 +80,12 @@ class Batch(Base):
     created_by: Mapped[str] = mapped_column(ForeignKey("users.cognito_sub"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     status: Mapped[str] = mapped_column(String(16), default="open")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    __table_args__ = (CheckConstraint("status IN ('open', 'closed')", name="ck_batches_status"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'closed', 'archived')", name="ck_batches_status"),
+    )
 
 
 class Label(Base):
@@ -141,7 +153,16 @@ class Image(Base):
             postgresql_where=text("sha256 IS NOT NULL"),
         ),
         Index("ix_images_batch_status", "batch_id", "status"),
+        # Keyset pagination of the streaming export; see migration 0006.
+        Index("ix_images_batch_created", "batch_id", "created_at", "id"),
         Index("ix_images_assigned_to", "assigned_to"),
+        # Queue-health queries (reaper and /metrics); see migration 0003.
+        Index("ix_images_submitted", "id", postgresql_where=text("status = 'submitted'")),
+        Index(
+            "ix_images_lease_expiry",
+            "lease_expires_at",
+            postgresql_where=text("assigned_to IS NOT NULL"),
+        ),
     )
 
 

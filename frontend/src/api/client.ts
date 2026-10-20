@@ -1,12 +1,17 @@
+import { refreshSession } from "../auth/refresh";
 import { getIdToken } from "../auth/sessionStore";
 import { config } from "../config";
 import type {
+  AdminUser,
+  AdminUsersPage,
   Batch,
+  BatchDeleteProgress,
   Box,
   CompleteResult,
   ImageDetail,
   ImageSummary,
   Label,
+  Role,
   ReviewResult,
   ReviewStats,
   UploadTicket,
@@ -64,9 +69,8 @@ const parseError = async (res: Response): Promise<ApiError> => {
 
 type RequestOptions = { method?: string; body?: unknown; signal?: AbortSignal };
 
-export const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
-  const token = getIdToken();
-  const res = await fetch(`${config.apiUrl}${path}`, {
+const send = (path: string, options: RequestOptions, token: string | null): Promise<Response> =>
+  fetch(`${config.apiUrl}${path}`, {
     method: options.method ?? (options.body !== undefined ? "POST" : "GET"),
     headers: {
       ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
@@ -75,7 +79,19 @@ export const request = async <T>(path: string, options: RequestOptions = {}): Pr
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     signal: options.signal,
   });
-  if (res.status === 401) onUnauthorized();
+
+export const request = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
+  const sentWith = getIdToken();
+  let res = await send(path, options, sentWith);
+  if (res.status === 401) {
+    // The ID token probably expired mid-session. Refresh once (shared by all concurrent
+    // requests) and retry once; only sign out if the refresh token is rejected too.
+    const tokenChanged = getIdToken() !== sentWith; // another request already refreshed
+    const outcome = tokenChanged ? "ok" : await refreshSession();
+    if (outcome === "ok") res = await send(path, options, getIdToken());
+    // "offline": could not reach the token endpoint; surface the 401 but keep the session.
+    if (res.status === 401 && outcome !== "offline") onUnauthorized();
+  }
   if (!res.ok) throw await parseError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -88,9 +104,24 @@ export const api = {
   devLogin: (email: string, roles: string[]) =>
     request<{ token: string; sub: string }>("/dev/login", { body: { email, roles } }),
 
-  listBatches: () => request<Batch[]>("/batches"),
+  listBatches: (includeArchived = false) =>
+    request<Batch[]>(`/batches${includeArchived ? "?include_archived=true" : ""}`),
+  archiveBatch: (id: string) => request<Batch>(`/batches/${id}/archive`, { method: "POST", body: {} }),
+  unarchiveBatch: (id: string) => request<Batch>(`/batches/${id}/unarchive`, { method: "POST", body: {} }),
+  /** One bounded step of a resumable delete: call again while `done` is false. */
+  deleteBatch: (id: string) => request<BatchDeleteProgress>(`/batches/${id}`, { method: "DELETE" }),
   getBatch: (id: string) => request<Batch>(`/batches/${id}`),
   createBatch: (name: string) => request<Batch>("/batches", { body: { name } }),
+  listAdminUsers: (token?: string | null) =>
+    request<AdminUsersPage>(`/admin/users?limit=50${token ? `&token=${encodeURIComponent(token)}` : ""}`),
+  inviteUser: (email: string, roles: Role[]) => request<AdminUser>("/admin/users", { body: { email, roles } }),
+  setUserRoles: (sub: string, roles: Role[]) =>
+    request<AdminUser>(`/admin/users/${encodeURIComponent(sub)}/roles`, { method: "PUT", body: { roles } }),
+  setUserEnabled: (sub: string, enabled: boolean) =>
+    request<AdminUser>(`/admin/users/${encodeURIComponent(sub)}/${enabled ? "enable" : "disable"}`, {
+      method: "POST",
+      body: {},
+    }),
   listLabels: (batchId: string) => request<Label[]>(`/batches/${batchId}/labels`),
 
   requestUploads: (

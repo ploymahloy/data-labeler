@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import io
 import uuid
+import warnings
 from dataclasses import dataclass
 
 from PIL import Image as PILImage
@@ -14,24 +15,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.errors import ApiError
-from app.models import Batch, Image, ImageStatus
+from app.models import Image, ImageStatus
 from app.schemas import (
     CompleteResult,
     UploadFile,
     UploadTicket,
 )
+from app.services.batches import lock_open_batch
 from app.storage import Storage, safe_filename
 
 FORMAT_TO_MIME = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}
 
 
-async def get_open_batch(session: AsyncSession, batch_id: uuid.UUID) -> Batch:
-    batch = await session.get(Batch, batch_id)
-    if batch is None:
-        raise ApiError(404, "not_found", "Batch not found")
-    if batch.status != "open":
-        raise ApiError(409, "batch_closed", "Batch is closed")
-    return batch
+async def get_open_batch(session: AsyncSession, batch_id: uuid.UUID) -> None:
+    await lock_open_batch(session, batch_id)
 
 
 async def register_uploads(
@@ -87,10 +84,22 @@ class _Analysis:
     ok: bool
     result: str = "ready"
     detail: str | None = None
+    code: str | None = None
     sha256: str | None = None
     width: int | None = None
     height: int | None = None
     content_type: str | None = None
+
+
+def _too_large(image_id: uuid.UUID, width: int, height: int, settings: Settings) -> _Analysis:
+    return _Analysis(
+        image_id,
+        False,
+        "invalid",
+        f"Image is too large: {width}x{height} "
+        f"(limit {settings.max_image_pixels:,} pixels, {settings.max_image_side:,} px per side)",
+        code="image_too_large",
+    )
 
 
 def _analyze(storage: Storage, settings: Settings, image: Image) -> _Analysis:
@@ -101,12 +110,32 @@ def _analyze(storage: Storage, settings: Settings, image: Image) -> _Analysis:
     if info.size > settings.max_upload_bytes:
         return _Analysis(image.id, False, "invalid", "File is too large")
     data = storage.read(image.s3_key)
+    # Pillow reads only the header here; pixels are never decoded in the API, but the limits
+    # keep absurd images (e.g. a tiny PNG declaring billions of pixels) out of every consumer.
+    PILImage.MAX_IMAGE_PIXELS = settings.max_image_pixels
     try:
-        with PILImage.open(io.BytesIO(data)) as pil:
+        with warnings.catch_warnings():
+            # Sizes between 1x and 2x the limit only warn in Pillow; we enforce the limit below.
+            warnings.simplefilter("ignore", PILImage.DecompressionBombWarning)
+            pil = PILImage.open(io.BytesIO(data))
+        with pil:
             fmt = pil.format or ""
             width, height = pil.size
+            if (
+                width * height > settings.max_image_pixels
+                or max(width, height) > settings.max_image_side
+            ):
+                return _too_large(image.id, width, height, settings)
             pil.verify()
-    except (UnidentifiedImageError, PILImage.DecompressionBombError, OSError, SyntaxError) as exc:
+    except PILImage.DecompressionBombError:
+        return _Analysis(
+            image.id,
+            False,
+            "invalid",
+            f"Image is too large (more than {settings.max_image_pixels:,} pixels)",
+            code="image_too_large",
+        )
+    except (UnidentifiedImageError, OSError, SyntaxError) as exc:
         return _Analysis(image.id, False, "invalid", f"Not a readable image: {exc}")
     if fmt not in FORMAT_TO_MIME:
         return _Analysis(image.id, False, "invalid", f"Unsupported image format {fmt}")
@@ -170,7 +199,7 @@ async def complete_uploads(
         elif not analysis.ok:
             await _discard(session, storage, image)
             results[image.id] = CompleteResult(
-                image_id=image.id, result="invalid", detail=analysis.detail
+                image_id=image.id, result="invalid", detail=analysis.detail, code=analysis.code
             )
         else:
             results[image.id] = await _finalize(session, storage, image, analysis)

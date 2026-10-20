@@ -1,0 +1,41 @@
+# Staging is a second, fully separate stack: its own VPC, EKS, RDS, Cognito pool, buckets and CDN.
+# Use a separate state. Either a workspace or a distinct backend key:
+#
+#   terraform init -backend-config="key=data-labeler/staging.tfstate"
+#   terraform apply -var-file=staging.tfvars
+#   cd addons && terraform init -backend-config="key=data-labeler/staging-addons.tfstate" \
+#     && terraform apply -var environment=staging
+#
+# The add-ons stack must be given the same name/environment/region as the core stack.
+
+region                = "us-east-1"
+environment           = "staging"
+cognito_domain_prefix = "my-company-labeler-staging" # must be globally unique
+
+web_domain          = "staging.labeler.example.com"
+api_domain          = "api.staging.labeler.example.com"
+# web_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+
+# GitHub Actions deploys staging through the GitHub environment named "staging".
+github_repository = "my-org/data-labeler"
+# The GitHub OIDC provider is per AWS account. If prod lives in the same account, it already exists.
+create_github_oidc_provider = false
+
+# Cheaper than prod
+single_nat_gateway     = true
+db_multi_az            = false
+db_deletion_protection = false
+db_instance_class      = "db.t4g.small"
+db_allocated_storage   = 20
+node_instance_types    = ["t3.medium"]
+node_min_size          = 2
+node_max_size          = 3
+
+# Let the WAF only count while you tune it against real traffic.
+waf_block_mode = false
+
+# Alarms: send to a team channel, and size the thresholds for the smaller database
+# (db.t4g.small allows ~225 connections; the staging overlay budgets 100).
+alarm_email           = "staging-alerts@example.com"
+rds_connections_alarm = 180
+# After the first deploy: api_alb_name = "data-labeler-staging-api"

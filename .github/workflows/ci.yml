@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -29,8 +32,10 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql+asyncpg://labeler:labeler@localhost:5432/labeler_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -38,6 +43,11 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
+      - name: Migration safety (destructive operations, upgrade/downgrade/upgrade)
+        run: |
+          python -m scripts.check_migrations static
+          python -m scripts.check_migrations roundtrip \
+            --database-url postgresql+asyncpg://labeler:labeler@localhost:5432/postgres
       - run: pytest -q
 
   frontend:
@@ -46,8 +56,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -74,6 +86,9 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://labeler:labeler@localhost:5432/labeler_dev
+      ENVIRONMENT: local
+      RATE_LIMIT_ENABLED: "false"
+      BATCH_DELETE_COOLDOWN_SECONDS: "0"
       AUTH_MODE: dev
       DEV_AUTH_SECRET: ci-dev-secret-ci-dev-secret-ci-dev-secret
       S3_BUCKET: labeler-images
@@ -82,13 +97,15 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
-      CORS_ORIGINS: '["http://localhost:5173"]'
+      CORS_ORIGINS: '["http://localhost:5173","http://localhost:5174"]'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -98,7 +115,7 @@ jobs:
       - name: Start moto (S3) and create bucket
         run: |
           moto_server -p 4566 > /tmp/moto.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:4566/moto-api/ >/dev/null && break; sleep 1; done
+          for _ in $(seq 1 30); do curl -sf http://localhost:4566/moto-api/ >/dev/null && break; sleep 1; done
           python - <<'PY'
           import boto3
           boto3.client("s3", endpoint_url="http://localhost:4566", region_name="us-east-1").create_bucket(Bucket="labeler-images")
@@ -108,18 +125,18 @@ jobs:
         run: |
           alembic upgrade head
           nohup uvicorn app.main:app --port 8000 > /tmp/api.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:8000/readyz >/dev/null && break; sleep 1; done
+          for _ in $(seq 1 30); do curl -sf http://localhost:8000/readyz >/dev/null && break; sleep 1; done
       - name: Frontend deps and browsers
         working-directory: frontend
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox webkit
       - name: Playwright
         working-directory: frontend
         run: npx playwright test
       - name: Upload API log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-logs
           path: |
@@ -130,10 +147,16 @@ jobs:
   k8s-manifests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - run: |
-          kubectl kustomize deploy/k8s/overlays/prod > /dev/null
+          kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.yaml
+          kubectl kustomize deploy/k8s/overlays/staging > /tmp/staging.yaml
           kubectl kustomize deploy/k8s/migrate > /dev/null
+          grep -q 'ENVIRONMENT: staging' /tmp/staging.yaml
+          grep -q 'ENVIRONMENT: production' /tmp/prod.yaml
+          ! grep -q 'AUTH_MODE: dev' /tmp/prod.yaml /tmp/staging.yaml
 
   terraform:
     runs-on: ubuntu-latest
@@ -141,20 +164,42 @@ jobs:
       run:
         working-directory: infra/terraform
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate
+      - name: Validate add-ons stack
+        working-directory: infra/terraform/addons
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
 
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: backend
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  workflows:
+    # Lint the workflows themselves: syntax and shell (actionlint) plus supply-chain and
+    # permission mistakes (zizmor: unpinned actions, token scope, injection, risky triggers).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -color
+      - name: zizmor
+        run: docker run --rm -v "$PWD":/repo -w /repo ghcr.io/zizmorcore/zizmor:1.31.1 --no-progress .github

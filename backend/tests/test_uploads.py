@@ -1,4 +1,8 @@
+import struct
+import zlib
+
 import httpx
+import pytest
 
 from tests.helpers import auth, create_batch, png_bytes, upload_images
 
@@ -87,6 +91,43 @@ async def test_non_image_bytes_are_rejected_and_cleaned_up(client: httpx.AsyncCl
     results = await upload_images(client, LAB, batch, [b"this is not an image"])
     assert results[0]["result"] == "invalid"
     assert await sql.val("SELECT count(*) FROM images") == 0
+
+
+def _png_declaring(width: int, height: int) -> bytes:
+    """A few bytes of PNG whose header declares huge dimensions (a decompression bomb)."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(kind + data)
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b"")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _png_declaring(60_000, 60_000),  # far beyond the pixel limit: Pillow's own bomb error
+        _png_declaring(11_000, 11_000),  # 121M pixels: over our limit, under Pillow's hard stop
+        png_bytes(1, (25_000, 1)),  # real image, few pixels, but a side over the limit
+    ],
+    ids=["bomb", "over_pixel_limit", "over_side_limit"],
+)
+async def test_oversized_images_are_rejected_and_cleaned_up(
+    client: httpx.AsyncClient, sql, payload: bytes
+):
+    batch = await create_batch(client, LAB)
+    results = await upload_images(client, LAB, batch, [payload])
+    assert results[0]["result"] == "invalid"
+    assert results[0]["code"] == "image_too_large"
+    assert await sql.val("SELECT count(*) FROM images") == 0
+
+
+async def test_images_within_limits_still_pass(client: httpx.AsyncClient):
+    batch = await create_batch(client, LAB)
+    results = await upload_images(client, LAB, batch, [png_bytes(5, (4_000, 3_000))])
+    assert results[0]["result"] == "ready"
+    assert results[0]["code"] is None
 
 
 async def test_declared_type_is_validated(client: httpx.AsyncClient):

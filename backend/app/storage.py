@@ -87,6 +87,29 @@ class Storage:
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self.bucket, Key=key)
 
+    def delete_prefix_chunk(self, prefix: str, limit: int = 1000) -> int:
+        """Permanently delete up to `limit` object versions (and delete markers) under a prefix.
+
+        The images bucket is versioned, so a plain delete would only add a delete marker.
+        Returns how many were removed; 0 means the prefix is empty.
+        """
+        listing = self._client.list_object_versions(
+            Bucket=self.bucket, Prefix=prefix, MaxKeys=min(limit, 1000)
+        )
+        targets = [
+            {"Key": v["Key"], "VersionId": v["VersionId"]}
+            for v in [*listing.get("Versions", []), *listing.get("DeleteMarkers", [])]
+        ]
+        if not targets:
+            return 0
+        result = self._client.delete_objects(
+            Bucket=self.bucket, Delete={"Objects": targets, "Quiet": True}
+        )
+        errors = result.get("Errors", [])
+        if errors:
+            raise RuntimeError(f"S3 delete failed for {len(errors)} objects: {errors[0]}")
+        return len(targets)
+
     # --- delivery --------------------------------------------------------------
     def image_url(self, key: str) -> str:
         s = self.settings

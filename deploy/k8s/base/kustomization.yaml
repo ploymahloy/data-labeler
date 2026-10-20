@@ -18,9 +18,6 @@ resources:
   - api-hpa.yaml
   - api-pdb.yaml
   - api-ingress.yaml
+  - networkpolicies.yaml
   - reaper-cronjob.yaml
-
-images:
-  - name: labeler-backend
-    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-backend
-    newTag: latest
+# Image names are set per environment in the overlays (they are separate ECR repositories).

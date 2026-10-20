@@ -9,7 +9,11 @@ export type CanvasState = {
   /** Incremented on every edit so async saves can tell whether newer edits happened meanwhile. */
   revision: number;
   savedRevision: number;
-  load: (boxes: Box[]) => void;
+  /** Image the boxes belong to (lets a forced sign-out stash unsaved work for that image). */
+  imageId: string | null;
+  load: (boxes: Box[], imageId?: string | null) => void;
+  /** Replace boxes with stashed, never-saved ones; marks them dirty so autosave persists them. */
+  restore: (boxes: Box[]) => void;
   add: (box: Box) => void;
   update: (id: string, rect: Rect) => void;
   rename: (id: string, label: string) => void;
@@ -25,8 +29,12 @@ export const useCanvasStore = create<CanvasState>()((set) => ({
   invalidIds: [],
   revision: 0,
   savedRevision: 0,
+  imageId: null,
 
-  load: (boxes) => set({ boxes, selectedId: null, invalidIds: [], revision: 0, savedRevision: 0 }),
+  load: (boxes, imageId = null) =>
+    set({ boxes, imageId, selectedId: null, invalidIds: [], revision: 0, savedRevision: 0 }),
+
+  restore: (boxes) => set({ boxes, selectedId: null, invalidIds: [], revision: 1, savedRevision: 0 }),
 
   add: (box) =>
     set((s) => ({ boxes: [...s.boxes, box], selectedId: box.id, revision: s.revision + 1, invalidIds: [] })),

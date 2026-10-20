@@ -66,6 +66,7 @@ JWKS_JSON = json.dumps(
 os.environ.update(
     {
         "DATABASE_URL": TEST_DATABASE_URL,
+        "ENVIRONMENT": "local",
         "AUTH_MODE": "cognito",
         "COGNITO_REGION": "us-east-1",
         "COGNITO_USER_POOL_ID": POOL_ID,
@@ -78,6 +79,9 @@ os.environ.update(
         "AWS_SECRET_ACCESS_KEY": "testing",
         "LEASE_MINUTES": "15",
         "MAX_REJECTIONS": "3",
+        # The shared suite hammers endpoints as a handful of users; test_ratelimit.py turns the
+        # limiter back on explicitly.
+        "RATE_LIMIT_ENABLED": "false",
         "DB_POOL_SIZE": "40",
         "DB_MAX_OVERFLOW": "20",
     }

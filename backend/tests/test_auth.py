@@ -88,3 +88,25 @@ async def test_roles_follow_the_token_groups_on_each_request(client: httpx.Async
     await client.get("/batches", headers=auth("pat@example.com", "labeler", "reviewer", "bogus"))
     row = await sql.fetch("SELECT roles FROM users")
     assert list(row[0]["roles"]) == ["labeler", "reviewer"]
+
+
+async def test_token_about_to_expire_is_still_accepted(client: httpx.AsyncClient):
+    token = make_token("late@example.com", ["labeler"], expires_in=5)
+    r = await client.get("/batches", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+
+
+async def test_expiry_returns_a_401_the_spa_can_recover_from(client: httpx.AsyncClient, sql):
+    """The SPA reacts to 401 by refreshing its ID token and retrying once: the same user with a
+    fresh token must work immediately, and expiry must be reported as a plain 401 challenge."""
+    expired = make_token("ana@example.com", ["labeler"], expires_in=-1)
+    r = await client.get("/batches", headers={"Authorization": f"Bearer {expired}"})
+    assert r.status_code == 401
+    assert r.headers["www-authenticate"] == "Bearer"
+    assert "expired" in r.json()["detail"].lower()
+    assert await sql.val("SELECT count(*) FROM users") == 0  # nothing is written for bad tokens
+
+    refreshed = make_token("ana@example.com", ["labeler"], expires_in=3600)
+    r = await client.get("/batches", headers={"Authorization": f"Bearer {refreshed}"})
+    assert r.status_code == 200
+    assert await sql.val("SELECT count(*) FROM users") == 1

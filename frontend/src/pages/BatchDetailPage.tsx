@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { ImageStatus } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { hasRole } from "../auth/jwt";
+import { BatchAdminPanel } from "../components/BatchAdminPanel";
 
 const STATUS_LABELS: [ImageStatus, string][] = [
   ["pending", "Waiting for annotation"],
@@ -28,6 +29,7 @@ const downloadJson = (data: unknown, filename: string) => {
 export const BatchDetailPage = () => {
   const { batchId = "" } = useParams();
   const { identity } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [includeUnreviewed, setIncludeUnreviewed] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -77,16 +79,25 @@ export const BatchDetailPage = () => {
     );
   }
 
+  const archived = batch.data.status === "archived";
+
   return (
     <div className="page">
       <Link to="/">&larr; All batches</Link>
       <h1>{batch.data.name}</h1>
 
-      <div className="row">
-        {canLabel && <Link className="button" to={`/batches/${batchId}/upload`}>Upload images</Link>}
-        {canLabel && <Link className="button" to={`/batches/${batchId}/label`}>Start labeling</Link>}
-        {canReview && <Link className="button" to={`/batches/${batchId}/review`}>Start reviewing</Link>}
-      </div>
+      {archived && (
+        <div className="card warning" role="status">
+          This batch is archived: labeling, reviewing and uploads are paused.
+        </div>
+      )}
+      {!archived && (
+        <div className="row">
+          {canLabel && <Link className="button" to={`/batches/${batchId}/upload`}>Upload images</Link>}
+          {canLabel && <Link className="button" to={`/batches/${batchId}/label`}>Start labeling</Link>}
+          {canReview && <Link className="button" to={`/batches/${batchId}/review`}>Start reviewing</Link>}
+        </div>
+      )}
 
       <h2>Progress</h2>
       <table className="table" data-testid="status-table">
@@ -173,6 +184,19 @@ export const BatchDetailPage = () => {
               </li>
             ))}
           </ul>
+
+          <BatchAdminPanel
+            batch={batch.data}
+            onChanged={() => {
+              void queryClient.invalidateQueries({ queryKey: ["batch", batchId] });
+              void queryClient.invalidateQueries({ queryKey: ["batches"] });
+            }}
+            onDeleted={() => {
+              queryClient.removeQueries({ queryKey: ["batch", batchId] });
+              void queryClient.invalidateQueries({ queryKey: ["batches"] });
+              navigate("/");
+            }}
+          />
         </>
       )}
     </div>

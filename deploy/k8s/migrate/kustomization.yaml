@@ -11,5 +11,5 @@ resources:
 
 images:
   - name: labeler-backend
-    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-backend
+    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-prod-backend
     newTag: latest

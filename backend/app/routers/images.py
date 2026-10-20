@@ -7,6 +7,8 @@ from app.auth import CurrentUser, current_user, require_role
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Decision, Role
+from app.observability import claims
+from app.ratelimit import rate_limit
 from app.schemas import (
     ImageDetail,
     LeaseOut,
@@ -23,7 +25,11 @@ router = APIRouter(tags=["images"])
 
 
 # --- annotation queue ---------------------------------------------------------------
-@router.post("/batches/{batch_id}/images/next", response_model=ImageDetail)
+@router.post(
+    "/batches/{batch_id}/images/next",
+    response_model=ImageDetail,
+    dependencies=[Depends(rate_limit("claim"))],
+)
 async def next_image(
     batch_id: uuid.UUID,
     user: CurrentUser = Depends(require_role(Role.labeler)),
@@ -34,13 +40,18 @@ async def next_image(
     """Atomically claim the next image to annotate (or resume the one already leased)."""
     async with session.begin():
         image_id = await workflow.claim_annotate(session, batch_id, user, settings)
+        claims.labels("annotate", "empty" if image_id is None else "claimed").inc()
         if image_id is None:
             return Response(status_code=204)
         return await image_service.load_detail(session, storage, image_id)
 
 
 # --- review queue -------------------------------------------------------------------
-@router.post("/batches/{batch_id}/reviews/next", response_model=ImageDetail)
+@router.post(
+    "/batches/{batch_id}/reviews/next",
+    response_model=ImageDetail,
+    dependencies=[Depends(rate_limit("claim"))],
+)
 async def next_for_review(
     batch_id: uuid.UUID,
     user: CurrentUser = Depends(require_role(Role.reviewer)),
@@ -51,6 +62,7 @@ async def next_for_review(
     """Claim the next submitted image authored by someone else (or resume own review lease)."""
     async with session.begin():
         image_id = await workflow.claim_review(session, batch_id, user, settings)
+        claims.labels("review", "empty" if image_id is None else "claimed").inc()
         if image_id is None:
             return Response(status_code=204)
         return await image_service.load_detail(session, storage, image_id)

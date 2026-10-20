@@ -10,13 +10,25 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: REPLACE_ME
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
     alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    # Pinned so Terraform can find the ALB for alarms (var.api_alb_name). Overlays set it per environment.
+    alb.ingress.kubernetes.io/load-balancer-name: data-labeler-prod-api
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=60
+    # Prometheus metrics are for in-cluster scrapers only: the ALB answers 404 itself.
+    alb.ingress.kubernetes.io/actions.block-metrics: >-
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"Not Found"}}
 spec:
   ingressClassName: alb
   rules:
     - host: REPLACE_ME
       http:
         paths:
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: block-metrics
+                port:
+                  name: use-annotation
           - path: /
             pathType: Prefix
             backend:

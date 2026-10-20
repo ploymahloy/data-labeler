@@ -101,8 +101,56 @@ variable "create_github_oidc_provider" {
   default     = true
 }
 
-variable "install_cluster_addons" {
-  description = "Install AWS Load Balancer Controller and External Secrets Operator with Helm."
+variable "api_domain" {
+  description = "Public hostname of the API (e.g. api.labeler.example.com). Added to the SPA's CSP connect-src."
+  type        = string
+  default     = ""
+}
+
+variable "waf_enabled" {
+  description = "Create WAF web ACLs for CloudFront and the API load balancer."
   type        = bool
   default     = true
+}
+
+variable "waf_block_mode" {
+  description = "false = WAF rules only count (tune against real traffic, then set true)."
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit_api" {
+  description = "Per-IP requests per 5 minutes on the API load balancer."
+  type        = number
+  default     = 2000
+}
+
+variable "waf_rate_limit_cdn" {
+  description = "Per-IP requests per 5 minutes on CloudFront (image grids load many files)."
+  type        = number
+  default     = 10000
+}
+
+variable "alarm_email" {
+  description = "Email subscribed to the alarm SNS topic (confirm the subscription email). Empty = topic only (wire PagerDuty/Slack yourself)."
+  type        = string
+  default     = ""
+}
+
+variable "api_alb_name" {
+  description = "Name of the API's ALB (the Ingress pins it with alb.ingress.kubernetes.io/load-balancer-name). Set after the first deploy to enable ALB alarms; empty skips them because the ALB is created by the cluster, not Terraform."
+  type        = string
+  default     = ""
+}
+
+variable "submitted_age_alarm_seconds" {
+  description = "Alarm when the oldest image awaiting review is older than this."
+  type        = number
+  default     = 86400
+}
+
+variable "rds_connections_alarm" {
+  description = "DatabaseConnections alarm threshold. db.t4g.medium allows ~450; the default is 80% of that."
+  type        = number
+  default     = 360
 }

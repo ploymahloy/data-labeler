@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import type { Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { consumeReturnPath, peekReturnPath } from "../auth/returnTo";
 import { config } from "../config";
 
 const ALL_ROLES: Role[] = ["labeler", "reviewer", "admin"];
@@ -14,7 +15,13 @@ export const LoginPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (ready && identity) return <Navigate to="/" replace />;
+  // Back to the page the user was on when their session ended (dev login; Cognito returns via
+  // the callback page).
+  const [returnTo] = useState(() => peekReturnPath());
+  if (ready && identity) {
+    consumeReturnPath();
+    return <Navigate to={returnTo} replace />;
+  }
 
   const toggle = (role: Role) =>
     setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));

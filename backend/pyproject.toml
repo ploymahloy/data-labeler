@@ -16,6 +16,7 @@ dependencies = [
   "cryptography>=42",
   "httpx>=0.27",
   "pillow>=10.3",
+  "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]
@@ -47,3 +48,7 @@ ignore = ["B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*" = ["E501", "I001", "UP"]
+# Long SQL strings and one-line operation fixtures read better unwrapped.
+"scripts/check_migrations.py" = ["E501"]
+"tests/test_migration_check.py" = ["E501"]
+"tests/test_user_admin.py" = ["E501"]

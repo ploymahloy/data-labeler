@@ -15,7 +15,10 @@ module "eks" {
   cluster_addons = {
     coredns    = {}
     kube-proxy = {}
-    vpc-cni    = {}
+    vpc-cni = {
+      # Enforce Kubernetes NetworkPolicy (deploy/k8s/base/networkpolicies.yaml).
+      configuration_values = jsonencode({ enableNetworkPolicy = "true" })
+    }
   }
 
   eks_managed_node_groups = {
@@ -103,64 +106,5 @@ module "external_secrets_irsa" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Cluster add-ons
-# ---------------------------------------------------------------------------
-
-resource "helm_release" "aws_load_balancer_controller" {
-  count = var.install_cluster_addons ? 1 : 0
-
-  name       = "aws-load-balancer-controller"
-  namespace  = "kube-system"
-  repository = "https://aws.github.io/eks-charts"
-  chart      = "aws-load-balancer-controller"
-  version    = "1.8.1"
-
-  set {
-    name  = "clusterName"
-    value = module.eks.cluster_name
-  }
-  set {
-    name  = "region"
-    value = var.region
-  }
-  set {
-    name  = "vpcId"
-    value = module.vpc.vpc_id
-  }
-  set {
-    name  = "serviceAccount.name"
-    value = "aws-load-balancer-controller"
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.lb_controller_irsa.iam_role_arn
-  }
-}
-
-resource "helm_release" "external_secrets" {
-  count = var.install_cluster_addons ? 1 : 0
-
-  name             = "external-secrets"
-  namespace        = "external-secrets"
-  create_namespace = true
-  repository       = "https://charts.external-secrets.io"
-  chart            = "external-secrets"
-  version          = "0.9.20"
-
-  set {
-    name  = "installCRDs"
-    value = "true"
-  }
-  set {
-    name  = "serviceAccount.name"
-    value = "external-secrets"
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.external_secrets_irsa.iam_role_arn
-  }
-}
-
-# The ClusterSecretStore itself is a CRD instance; apply it once ESO is running:
-#   kubectl apply -f deploy/k8s/cluster/secret-store.yaml
+# Cluster add-ons (AWS Load Balancer Controller, External Secrets Operator) live in the
+# separate `addons/` stack: Helm needs a running cluster, so they are applied after this one.

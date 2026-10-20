@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: labeler-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: labeler-api
       securityContext:
@@ -34,7 +38,9 @@ spec:
       containers:
         - name: api
           image: labeler-backend
-          args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+          # Keep-alive must outlast the ALB idle timeout (60s); uvicorn's 5s default makes the
+          # ALB reuse connections the pod has already closed, which surfaces as sporadic 502s.
+          args: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-keep-alive", "75"]
           ports:
             - name: http
               containerPort: 8000

@@ -8,6 +8,7 @@ import { LabelPrompt } from "../components/LabelPrompt";
 import { AUTOSAVE_DELAY_MS } from "../config";
 import { useLeaseHeartbeat } from "../hooks/useLeaseHeartbeat";
 import { useWorkQueue } from "../hooks/useWorkQueue";
+import { takeDraft } from "../lib/draftStash";
 import { findDuplicatePairs, normalizeLabel } from "../lib/geometry";
 import { isDirty, useCanvasStore } from "../store/canvasStore";
 
@@ -25,7 +26,7 @@ export const LabelPage = () => {
   const invalidIds = useCanvasStore((s) => s.invalidIds);
   const dirty = useCanvasStore(isDirty);
   const revision = useCanvasStore((s) => s.revision);
-  const { load, add, update, rename, remove, select, setInvalid, markSaved } = useCanvasStore.getState();
+  const { load, restore, add, update, rename, remove, select, setInvalid, markSaved } = useCanvasStore.getState();
 
   const [draft, setDraft] = useState<Rect | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -37,13 +38,20 @@ export const LabelPage = () => {
   const fetchNext = useCallback(() => api.nextImage(batchId), [batchId]);
   const onLoaded = useCallback(
     (img: ImageDetail) => {
-      load(img.annotations);
+      load(img.annotations, img.id);
       setDraft(null);
       setRenameId(null);
       setNotice(null);
       setSaveState("idle");
+      // Unsaved edits stashed when the session expired. Claiming returns this same image only
+      // while our lease is still live, so a different image simply never matches the stash.
+      const stashed = takeDraft(img.id);
+      if (stashed) {
+        restore(stashed);
+        setNotice("Restored your unsaved changes from before you were signed out.");
+      }
     },
-    [load],
+    [load, restore],
   );
   const { image, phase, error, claim, markLost, handedOff } = useWorkQueue(fetchNext, onLoaded);
 
@@ -261,13 +269,24 @@ export const LabelPage = () => {
 
       <aside className="workspace__side">
         <h3>{image?.filename ?? "Labeling"}</h3>
-        <p className="muted">Click and drag on the image to draw a box, then name it.</p>
+        <p className="muted">Drag on the image to draw a box, then name it. Double-click a box (or use ✎) to rename it.</p>
         <ul className="box-list" aria-label="Boxes">
           {boxes.map((b) => (
             <li key={b.id} className={b.id === selectedId ? "selected" : ""}>
               <button className="link" onClick={() => select(b.id)}>
                 <span className="swatch" style={{ background: labelColor(b.label) }} />
                 {b.label}
+              </button>
+              <button
+                className="icon"
+                aria-label={`Rename ${b.label} box`}
+                onClick={() => {
+                  select(b.id);
+                  setDraft(null);
+                  setRenameId(b.id);
+                }}
+              >
+                ✎
               </button>
               <button
                 className="icon"

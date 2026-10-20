@@ -31,8 +31,86 @@ data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
 }
 
-data "aws_cloudfront_response_headers_policy" "security" {
-  name = "Managed-SecurityHeadersPolicy"
+# Security headers. The SPA is a static bundle (no inline scripts), so the CSP can be strict:
+# scripts and styles only from this origin, connections only to the API, Cognito and S3 uploads.
+locals {
+  csp_connect = compact([
+    "'self'",
+    var.api_domain != "" ? "https://${var.api_domain}" : "",
+    "https://${var.cognito_domain_prefix}.auth.${var.region}.amazoncognito.com",
+    "https://*.s3.amazonaws.com",
+    "https://*.s3.${var.region}.amazonaws.com",
+    "https://*.s3-accelerate.amazonaws.com",
+  ])
+  csp_img = compact([
+    "'self'",
+    "blob:",
+    "data:",
+    "https://*.cloudfront.net",
+    var.web_domain != "" ? "https://${var.web_domain}" : "",
+  ])
+  csp = join("; ", [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src ${join(" ", local.csp_img)}",
+    "connect-src ${join(" ", local.csp_connect)}",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ])
+}
+
+resource "aws_cloudfront_response_headers_policy" "security" {
+  provider = aws.us_east_1
+  name     = "${local.prefix}-security"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = local.csp
+      override                = true
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 63072000
+      include_subdomains         = true
+      preload                    = true
+      override                   = true
+    }
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Permissions-Policy"
+      value    = "camera=(), microphone=(), geolocation=(), payment=()"
+      override = true
+    }
+  }
+}
+
+# WAF in front of CloudFront (SPA + signed image URLs). CLOUDFRONT-scope ACLs live in us-east-1.
+module "waf_cdn" {
+  count     = var.waf_enabled ? 1 : 0
+  source    = "./modules/waf"
+  providers = { aws = aws.us_east_1 }
+
+  name       = "${local.prefix}-cdn"
+  scope      = "CLOUDFRONT"
+  rate_limit = var.waf_rate_limit_cdn
+  block_mode = var.waf_block_mode
 }
 
 resource "aws_cloudfront_distribution" "main" {
@@ -43,6 +121,7 @@ resource "aws_cloudfront_distribution" "main" {
   price_class         = "PriceClass_All" # global teams: use every edge location
   http_version        = "http2and3"
   aliases             = var.web_domain != "" ? [var.web_domain] : []
+  web_acl_id          = var.waf_enabled ? module.waf_cdn[0].arn : null
 
   origin {
     origin_id                = "web"
@@ -63,7 +142,7 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods             = ["GET", "HEAD"]
     compress                   = true
     cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   ordered_cache_behavior {

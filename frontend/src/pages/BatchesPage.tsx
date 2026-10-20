@@ -11,8 +11,13 @@ export const BatchesPage = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const isAdmin = !!identity?.roles.includes("admin");
 
-  const batches = useQuery({ queryKey: ["batches"], queryFn: api.listBatches });
+  const batches = useQuery({
+    queryKey: ["batches", showArchived],
+    queryFn: () => api.listBatches(showArchived),
+  });
   const create = useMutation({
     mutationFn: (batchName: string) => api.createBatch(batchName),
     onSuccess: async (batch) => {
@@ -44,6 +49,12 @@ export const BatchesPage = () => {
           </button>
         </form>
       )}
+      {isAdmin && (
+        <label>
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show
+          archived batches
+        </label>
+      )}
       {create.isError && (
         <p className="error" role="alert">
           {create.error.message}
@@ -66,6 +77,7 @@ export const BatchesPage = () => {
               <Link to={`/batches/${b.id}`}>
                 <strong>{b.name}</strong>
               </Link>
+              {b.status === "archived" && <span className="badge"> Archived</span>}
               <div className="muted">
                 {done} / {total} accepted · created {new Date(b.created_at).toLocaleDateString()}
               </div>

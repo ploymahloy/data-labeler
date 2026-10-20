@@ -45,8 +45,11 @@ export const devToken = async (
   request: APIRequestContext,
   email: string,
   roles: string[],
+  ttlSeconds?: number,
 ): Promise<string> => {
-  const res = await request.post(`${API_URL}/dev/login`, { data: { email, roles } });
+  const res = await request.post(`${API_URL}/dev/login`, {
+    data: { email, roles, ...(ttlSeconds ? { ttl_seconds: ttlSeconds } : {}) },
+  });
   expect(res.ok()).toBeTruthy();
   return ((await res.json()) as { token: string }).token;
 };
@@ -58,6 +61,7 @@ export const seedBatch = async (
   request: APIRequestContext,
   token: string,
   count: number,
+  size: [number, number] = [160, 100],
 ): Promise<string> => {
   const created = await request.post(`${API_URL}/batches`, {
     data: { name: `e2e-${Date.now()}` },
@@ -67,7 +71,7 @@ export const seedBatch = async (
   const batchId = ((await created.json()) as { id: string }).id;
 
   const base = uniqueSeed();
-  const pngs = Array.from({ length: count }, (_, i) => makePng(base + i));
+  const pngs = Array.from({ length: count }, (_, i) => makePng(base + i, size[0], size[1]));
   const reg = await request.post(`${API_URL}/batches/${batchId}/uploads`, {
     data: {
       files: pngs.map((p, i) => ({ filename: `seed-${i}.png`, content_type: "image/png", size: p.length })),
@@ -132,4 +136,65 @@ export const drawBox = async (
   await input.fill(label);
   await input.press("Enter");
   await expect(page.getByLabel(`${label} box`).first()).toBeVisible();
+};
+
+export type Pt = { x: number; y: number };
+
+/** Viewport coordinates of a fractional position inside a bounding box. */
+export const at = (b: { x: number; y: number; width: number; height: number }, fx: number, fy: number): Pt => ({
+  x: b.x + b.width * fx,
+  y: b.y + b.height * fy,
+});
+
+/**
+ * One-finger drag. On Chromium this injects real touch input through CDP, so the browser itself
+ * produces the pointer events (pointerType "touch", implicit capture, touch-action handling).
+ * Firefox and WebKit have no equivalent in Playwright, so there the same gesture is dispatched as
+ * synthetic touch PointerEvents: it exercises our handlers in that engine, but not the engine's
+ * own touch pipeline.
+ */
+export const touchDrag = async (page: Page, from: Pt, to: Pt, steps = 8): Promise<void> => {
+  const lerp = (i: number): Pt => ({
+    x: from.x + ((to.x - from.x) * i) / steps,
+    y: from.y + ((to.y - from.y) * i) / steps,
+  });
+  const engine = page.context().browser()?.browserType().name();
+  if (engine === "chromium") {
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...from, id: 1 }] });
+      for (let i = 1; i <= steps; i += 1) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ ...lerp(i), id: 1 }] });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    } finally {
+      await cdp.detach();
+    }
+    return;
+  }
+  await page.evaluate(
+    ({ start, points }) => {
+      const fire = (target: Element, type: string, p: { x: number; y: number }) =>
+        target.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 7,
+            pointerType: "touch",
+            isPrimary: true,
+            button: 0,
+            buttons: type === "pointerup" ? 0 : 1,
+            clientX: p.x,
+            clientY: p.y,
+          }),
+        );
+      const down = document.elementFromPoint(start.x, start.y);
+      const canvas = document.querySelector('[data-testid="canvas"]');
+      if (!down || !canvas) throw new Error("no touch target");
+      fire(down, "pointerdown", start);
+      for (const p of points) fire(canvas, "pointermove", p);
+      fire(canvas, "pointerup", points[points.length - 1] ?? start);
+    },
+    { start: from, points: Array.from({ length: steps }, (_, i) => lerp(i + 1)) },
+  );
 };

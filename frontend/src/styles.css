@@ -229,8 +229,8 @@ fieldset {
 
 .box-list li {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 0.2rem;
   padding: 0.1rem 0.3rem;
   border-radius: 4px;
 }
@@ -373,4 +373,86 @@ blockquote {
   margin: 0.4rem 0 0;
   padding-left: 0.75rem;
   border-left: 3px solid #e0b45c;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.header__link {
+  margin-left: 1.5rem;
+  margin-right: auto;
+  color: var(--fg);
+}
+
+.box-list li .link {
+  margin-right: auto;
+}
+
+/* ---- touch and small screens ------------------------------------------- */
+/* A fingertip is ~40px wide: make the resize handles and buttons something it can hit. */
+@media (pointer: coarse) {
+  .handle {
+    width: 22px;
+    height: 22px;
+  }
+
+  button,
+  .icon {
+    min-height: 44px;
+  }
+
+  .icon {
+    min-width: 44px;
+  }
+
+  .box-list li {
+    padding: 0.2rem 0.3rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .page {
+    padding: 0.75rem;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.5rem;
+  }
+
+  .workspace__side {
+    position: static;
+  }
+
+  .canvas__image {
+    max-height: 60vh;
+  }
+
+  /* iOS Safari zooms the whole page when it focuses an input under 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .label-prompt {
+    flex-wrap: wrap;
+  }
+
+  .modal__body {
+    width: 94vw;
+  }
 }

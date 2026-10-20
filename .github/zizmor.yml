@@ -1,0 +1,10 @@
+rules:
+  dangerous-triggers:
+    ignore:
+      # Deploy-after-CI needs workflow_run. The staging job only proceeds for a successful CI run
+      # that came from a push to this repository (see its `if:`), never from a fork.
+      - deploy.yml
+  self-repository:
+    ignore:
+      # Reusable workflow in the same repo; './' is the form actionlint and GitHub's docs use.
+      - deploy.yml

@@ -1,0 +1,4 @@
+apiVersion: v2
+name: secret-store
+description: ClusterSecretStore backed by AWS Secrets Manager (credentials via the operator's IRSA role)
+version: 0.1.0

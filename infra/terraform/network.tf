@@ -36,3 +36,15 @@ module "vpc" {
     "kubernetes.io/role/internal-elb" = "1"
   }
 }
+
+# WAF for the API's ALB (the ALB itself is created by the Load Balancer Controller from the Ingress;
+# the Ingress references this ACL by ARN via alb.ingress.kubernetes.io/wafv2-acl-arn).
+module "waf_api" {
+  count  = var.waf_enabled ? 1 : 0
+  source = "./modules/waf"
+
+  name       = "${local.prefix}-api"
+  scope      = "REGIONAL"
+  rate_limit = var.waf_rate_limit_api
+  block_mode = var.waf_block_mode
+}

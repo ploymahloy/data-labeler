@@ -13,8 +13,13 @@ afterEach(() => {
   Element.prototype.getBoundingClientRect = original;
 });
 
-const pointer = (el: Element, type: string, x: number, y: number) =>
-  fireEvent(el, new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+const pointer = (el: Element, type: string, x: number, y: number, pointerId = 1) =>
+  fireEvent(
+    el,
+    Object.assign(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }), {
+      pointerId,
+    }),
+  );
 
 const car: Box = { id: "car-1", label: "car", x: 0.2, y: 0.2, w: 0.4, h: 0.4 };
 
@@ -117,5 +122,57 @@ describe("BoxCanvas", () => {
   it("marks server-flagged duplicates", () => {
     render(<BoxCanvas imageUrl="x.png" boxes={[car]} selectedId={null} invalidIds={["car-1"]} />);
     expect(screen.getByTestId("box-car-1")).toHaveClass("box--invalid");
+  });
+
+  describe("touch", () => {
+    it("ignores a second finger while one is drawing", () => {
+      const created: Rect[] = [];
+      render(<BoxCanvas imageUrl="x.png" boxes={[]} selectedId={null} onCreate={(r) => created.push(r)} />);
+      const canvas = screen.getByTestId("canvas");
+      pointer(canvas, "pointerdown", 100, 50, 1);
+      pointer(canvas, "pointerdown", 900, 450, 2); // second finger lands: must not restart the drag
+      pointer(canvas, "pointermove", 900, 450, 2); // ...and its moves are not ours
+      pointer(canvas, "pointerup", 900, 450, 2);
+      expect(created).toEqual([]); // the second finger lifting did not finish the first drag
+      pointer(canvas, "pointermove", 600, 300, 1);
+      pointer(canvas, "pointerup", 600, 300, 1);
+      expect(created).toHaveLength(1);
+      expect(created[0]?.x).toBeCloseTo(0.1);
+      expect(created[0]?.w).toBeCloseTo(0.5);
+    });
+
+    it("discards a drawing when the browser cancels the gesture", () => {
+      const created: Rect[] = [];
+      render(<BoxCanvas imageUrl="x.png" boxes={[]} selectedId={null} onCreate={(r) => created.push(r)} />);
+      const canvas = screen.getByTestId("canvas");
+      pointer(canvas, "pointerdown", 100, 50);
+      pointer(canvas, "pointermove", 600, 300);
+      expect(screen.getByTestId("draft")).toBeInTheDocument();
+      pointer(canvas, "pointercancel", 600, 300);
+      expect(created).toEqual([]);
+      expect(screen.queryByTestId("draft")).toBeNull();
+    });
+
+    it("puts a box back where it was when a move is cancelled", () => {
+      const updates: Rect[] = [];
+      render(
+        <BoxCanvas
+          imageUrl="x.png"
+          boxes={[car]}
+          selectedId="car-1"
+          onUpdate={(_, r) => updates.push(r)}
+          onSelect={() => undefined}
+        />,
+      );
+      const canvas = screen.getByTestId("canvas");
+      pointer(screen.getByTestId("box-car-1"), "pointerdown", 400, 150);
+      pointer(canvas, "pointermove", 700, 400);
+      pointer(canvas, "pointercancel", 700, 400);
+      expect(updates.at(-1)).toEqual({ x: 0.2, y: 0.2, w: 0.4, h: 0.4 });
+      // and the cancelled drag is over: further moves do nothing
+      const count = updates.length;
+      pointer(canvas, "pointermove", 100, 100);
+      expect(updates).toHaveLength(count);
+    });
   });
 });

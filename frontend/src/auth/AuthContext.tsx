@@ -3,12 +3,19 @@ import type { ReactNode } from "react";
 import { api, setUnauthorizedHandler } from "../api/client";
 import type { Role } from "../api/types";
 import { config } from "../config";
+import { stashCanvasDraft } from "../lib/draftStash";
 import { parseIdentity } from "./jwt";
 import type { Identity, Session } from "./jwt";
-import { buildAuthorizeUrl, codeChallenge, exchangeCode, randomString, refreshTokens } from "./pkce";
-import { getSession, saveSession } from "./sessionStore";
+import { buildAuthorizeUrl, codeChallenge, exchangeCode, randomString } from "./pkce";
+import { refreshSession } from "./refresh";
+import { rememberReturnPath } from "./returnTo";
+import { getSession, saveSession, subscribeSession } from "./sessionStore";
 
 const PKCE_KEY = "labeler.pkce";
+/** Refresh this long before the ID token expires. */
+const REFRESH_LEAD_MS = 60_000;
+/** Retry delay when the token endpoint is unreachable (offline, flaky link). */
+const OFFLINE_RETRY_MS = 15_000;
 
 type AuthState = {
   identity: Identity | null;
@@ -29,13 +36,22 @@ const cognito = () => ({
   redirectUri: config.redirectUri,
 });
 
+/** Forced sign-out (expired session): keep unsaved edits and the current page for re-login. */
+const expireSession = (): void => {
+  stashCanvasDraft();
+  rememberReturnPath();
+  saveSession(null);
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(() => getSession());
   const [ready, setReady] = useState(false);
 
+  // The API layer refreshes tokens on its own after a 401; follow whatever it stored.
+  useEffect(() => subscribeSession(setSession), []);
+
   const persist = useCallback((next: Session | null) => {
     saveSession(next);
-    setSession(next);
   }, []);
 
   const identity = useMemo(() => (session ? parseIdentity(session.idToken) : null), [session]);
@@ -52,10 +68,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [persist]);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => persist(null));
-  }, [persist]);
+    setUnauthorizedHandler(expireSession);
+  }, []);
 
-  // Refresh the ID token shortly before it expires (Cognito mode); otherwise sign out on expiry.
+  // Keep the ID token fresh: refresh shortly before expiry, and again when a hidden tab wakes up
+  // (browsers throttle timers in background tabs, so the timer alone can fire too late).
+  // Without a refresh token (dev mode) an expired session simply ends.
   useEffect(() => {
     const parsed = session ? parseIdentity(session.idToken) : null;
     if (!session || !parsed) {
@@ -63,26 +81,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setReady(true);
       return undefined;
     }
-    const refresh = async () => {
-      if (!session.refreshToken || config.authMode !== "cognito") {
-        persist(null);
-        return;
-      }
-      try {
-        const t = await refreshTokens(cognito(), session.refreshToken);
-        persist({ idToken: t.id_token, refreshToken: session.refreshToken });
-      } catch {
-        persist(null);
+
+    let timer: number | undefined;
+    const msLeft = () => parsed.exp * 1000 - Date.now();
+
+    const refresh = async (): Promise<void> => {
+      const outcome = await refreshSession();
+      if (outcome === "rejected") expireSession();
+      else if (outcome === "offline") timer = window.setTimeout(() => void refresh(), OFFLINE_RETRY_MS);
+      // "ok": the stored session changed, which re-runs this effect with the new expiry.
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && msLeft() <= REFRESH_LEAD_MS) {
+        window.clearTimeout(timer);
+        void refresh();
       }
     };
-    const msLeft = parsed.exp * 1000 - Date.now();
-    if (msLeft <= 0) {
+
+    if (msLeft() <= 0) {
       void refresh().finally(() => setReady(true));
-      return undefined;
+    } else {
+      setReady(true);
+      timer = window.setTimeout(() => void refresh(), Math.max(msLeft() - REFRESH_LEAD_MS, 1_000));
     }
-    setReady(true);
-    const timer = window.setTimeout(() => void refresh(), Math.max(msLeft - 60_000, 1_000));
-    return () => window.clearTimeout(timer);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [session, persist]);
 
   const loginDev = useCallback(

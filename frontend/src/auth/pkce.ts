@@ -26,18 +26,21 @@ export const buildAuthorizeUrl = (
     code_challenge: challenge,
     code_challenge_method: "S256",
   });
-  return `https://${domain}/oauth2/authorize?${params.toString()}`;
+  return `${origin(domain)}/oauth2/authorize?${params.toString()}`;
 };
 
 export type TokenResponse = { id_token: string; refresh_token?: string; expires_in: number };
 
+/** A bare Hosted UI domain is https; an explicit scheme is honoured (local fakes, e2e). */
+const origin = (domain: string): string => (/^https?:\/\//.test(domain) ? domain : `https://${domain}`);
+
 const tokenRequest = async (domain: string, form: Record<string, string>): Promise<TokenResponse> => {
-  const res = await fetch(`https://${domain}/oauth2/token`, {
+  const res = await fetch(`${origin(domain)}/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form).toString(),
   });
-  if (!res.ok) throw new Error(`Token request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(`Token request failed (${res.status})`), { status: res.status });
   return (await res.json()) as TokenResponse;
 };
 

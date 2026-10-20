@@ -1,0 +1,145 @@
+# Default deny, then open exactly what each workload needs.
+# Enforced by the Amazon VPC CNI network policy agent (enabled in infra/terraform/eks.tf).
+# Kubelet probes are not affected by NetworkPolicy on the VPC CNI.
+#
+# CIDRs below match infra/terraform defaults (vpc_cidr 10.40.0.0/16). If you change vpc_cidr,
+# patch them in the overlay.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# API: reachable from the ALB (target-type ip, so traffic originates from ALB ENIs inside the VPC)
+# and from an in-cluster Prometheus in the `monitoring` namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: labeler-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.40.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# API egress: DNS, Postgres, and HTTPS to the public internet (S3 presigning checks, Cognito JWKS
+# and admin API, STS for IRSA, CloudWatch). Private ranges and the node metadata service are
+# excluded from HTTPS. If you add VPC interface endpoints, allow their subnets here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: labeler-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.40.200.0/22 # database subnets
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Reaper: DNS, Postgres, and HTTPS for its CloudWatch heartbeat (and STS for IRSA).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reaper-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: labeler-reaper
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.40.200.0/22
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Migration Job: DNS and Postgres only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: migrate-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: labeler-migrate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.40.200.0/22
+      ports:
+        - protocol: TCP
+          port: 5432

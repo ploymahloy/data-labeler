@@ -59,3 +59,21 @@ output "github_deploy_role_arn" {
 output "db_endpoint" {
   value = aws_db_instance.main.address
 }
+
+# Consumed by the add-ons stack (it looks these up by name, so no remote state is required).
+output "lb_controller_role_arn" {
+  value = module.lb_controller_irsa.iam_role_arn
+}
+
+output "external_secrets_role_arn" {
+  value = module.external_secrets_irsa.iam_role_arn
+}
+
+output "api_waf_acl_arn" {
+  description = "Put this in the prod overlay (wafv2-acl-arn annotation on the API Ingress)."
+  value       = var.waf_enabled ? module.waf_api[0].arn : ""
+}
+
+output "alarm_topic_arn" {
+  value = aws_sns_topic.alarms.arn
+}

@@ -1,0 +1,97 @@
+# Staging overlay: same manifests as prod, smaller, and ENVIRONMENT=staging (so the metrics
+# dimension, log field and startup guard all say "staging"). Fill the REPLACE_ME values from
+# `terraform output` of the staging stack (see infra/terraform/staging.tfvars.example).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: labeler-backend
+    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-staging-backend
+    newTag: latest
+
+patches:
+  - target:
+      kind: ServiceAccount
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::000000000000:role/data-labeler-staging-api
+  - target:
+      kind: ConfigMap
+      name: labeler-api-config
+    patch: |-
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: staging
+      # Smaller pod and database budget: 4 pods x 25 connections = 100 (db.t4g.small ~ 225 max).
+      - op: replace
+        path: /data/MAX_API_PODS
+        value: "4"
+      - op: replace
+        path: /data/DB_CONNECTION_BUDGET
+        value: "100"
+      - op: replace
+        path: /data/COGNITO_USER_POOL_ID
+        value: us-east-1_REPLACE_ME
+      - op: replace
+        path: /data/COGNITO_CLIENT_ID
+        value: REPLACE_ME
+      - op: replace
+        path: /data/S3_BUCKET
+        value: data-labeler-staging-images
+      - op: replace
+        path: /data/CLOUDFRONT_DOMAIN
+        value: REPLACE_ME.cloudfront.net
+      - op: replace
+        path: /data/CLOUDFRONT_KEY_PAIR_ID
+        value: REPLACE_ME
+      - op: replace
+        path: /data/CORS_ORIGINS
+        value: '["https://staging.labeler.example.com"]'
+  - target:
+      kind: ExternalSecret
+      name: labeler-api-secrets
+    patch: |-
+      - op: replace
+        path: /spec/data/0/remoteRef/key
+        value: data-labeler-staging/app
+      - op: replace
+        path: /spec/data/1/remoteRef/key
+        value: data-labeler-staging/app
+  - target:
+      kind: Ingress
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/alb.ingress.kubernetes.io~1certificate-arn
+        value: arn:aws:acm:us-east-1:000000000000:certificate/REPLACE_ME
+      - op: replace
+        path: /metadata/annotations/alb.ingress.kubernetes.io~1load-balancer-name
+        value: data-labeler-staging-api
+      - op: add
+        path: /metadata/annotations/alb.ingress.kubernetes.io~1wafv2-acl-arn
+        value: arn:aws:wafv2:us-east-1:000000000000:regional/webacl/data-labeler-staging-api/REPLACE_ME
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.staging.labeler.example.com
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 4
+  - target:
+      kind: Deployment
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

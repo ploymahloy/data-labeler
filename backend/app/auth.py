@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.errors import ApiError
 from app.models import Role
+from app.observability import set_request_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -110,9 +112,42 @@ def claims_to_user(claims: dict[str, Any]) -> CurrentUser:
     return CurrentUser(sub=claims["sub"], email=claims.get("email", ""), roles=roles)
 
 
-async def _sync_user(session: AsyncSession, user: CurrentUser) -> None:
-    # Only writes when something changed, so the hot path stays read-only.
+async def _sync_user(
+    session: AsyncSession, user: CurrentUser, issued_at: int, skew_seconds: int
+) -> None:
+    """Enforce the off-switch and token cutoff, then keep the local copy of email and roles fresh.
+
+    One indexed read on the hot path; a write only when something changed.
+    """
     async with session.begin():
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT email, roles, active,
+                           COALESCE(
+                               tokens_valid_after
+                               > to_timestamp(:iat) + make_interval(secs => :skew),
+                               false) AS stale
+                    FROM users WHERE cognito_sub = :sub
+                    """
+                ),
+                {"sub": user.sub, "iat": issued_at, "skew": skew_seconds},
+            )
+        ).first()
+        if row is not None:
+            if not row.active:
+                raise ApiError(403, "account_disabled", "This account has been disabled")
+            if row.stale:
+                # Roles changed after this token was issued: make the client refresh it.
+                raise ApiError(
+                    401,
+                    "token_stale",
+                    "Your permissions changed; please refresh your session",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if row.email == user.email and sorted(row.roles) == sorted(user.roles):
+                return
         await session.execute(
             text(
                 """
@@ -120,8 +155,6 @@ async def _sync_user(session: AsyncSession, user: CurrentUser) -> None:
                 VALUES (:sub, :email, :roles)
                 ON CONFLICT (cognito_sub) DO UPDATE
                 SET email = EXCLUDED.email, roles = EXCLUDED.roles
-                WHERE users.email IS DISTINCT FROM EXCLUDED.email
-                   OR users.roles IS DISTINCT FROM EXCLUDED.roles
                 """
             ),
             {"sub": user.sub, "email": user.email, "roles": sorted(user.roles)},
@@ -137,7 +170,8 @@ async def current_user(
         raise _unauthorized()
     claims = await asyncio.to_thread(decode_token, credentials.credentials, settings)
     user = claims_to_user(claims)
-    await _sync_user(session, user)
+    await _sync_user(session, user, int(claims.get("iat", 0)), settings.token_cutoff_skew_seconds)
+    set_request_user(user.sub)
     return user
 
 

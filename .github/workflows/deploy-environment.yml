@@ -1,0 +1,144 @@
+name: Deploy environment
+
+# Reusable: deploys one environment (migrations, API + reaper, SPA) and smoke-tests it.
+# Variables are read from the GitHub *environment* of the same name, so staging and production
+# each have their own AWS_DEPLOY_ROLE_ARN, EKS_CLUSTER_NAME, ... values:
+#   AWS_REGION, AWS_DEPLOY_ROLE_ARN, EKS_CLUSTER_NAME, ECR_REPOSITORY (full URL), WEB_BUCKET,
+#   CLOUDFRONT_DISTRIBUTION_ID, VITE_API_URL, VITE_COGNITO_DOMAIN, VITE_COGNITO_CLIENT_ID, WEB_URL
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment and overlay name (staging or production)
+        required: true
+        type: string
+      overlay:
+        description: Directory name under deploy/k8s/overlays
+        required: true
+        type: string
+      ref:
+        description: Commit to deploy
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-api-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      IMAGE_TAG: ${{ inputs.ref }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      OVERLAY: ${{ inputs.overlay }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ vars.ECR_REPOSITORY }}:${{ inputs.ref }}
+          cache-from: type=gha,scope=${{ inputs.environment }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.environment }}
+
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Run database migrations
+        run: |
+          (cd deploy/k8s/migrate && kustomize edit set image labeler-backend="${ECR_REPOSITORY}:${IMAGE_TAG}")
+          kubectl -n labeler delete job labeler-migrate --ignore-not-found --wait=true
+          kubectl apply -k deploy/k8s/migrate
+          kubectl -n labeler wait --for=condition=complete job/labeler-migrate --timeout=300s \
+            || { kubectl -n labeler logs job/labeler-migrate --tail=200; exit 1; }
+
+      - name: Roll out API and reaper
+        id: rollout
+        run: |
+          (cd "deploy/k8s/overlays/${OVERLAY}" && kustomize edit set image labeler-backend="${ECR_REPOSITORY}:${IMAGE_TAG}")
+          kubectl apply -k "deploy/k8s/overlays/${OVERLAY}"
+          kubectl -n labeler rollout status deployment/labeler-api --timeout=300s
+
+      # Migrations are written to be backward compatible (see docs/runbooks/rollback.md), so
+      # putting the previous API version back is safe even though the schema moved forward.
+      - name: Roll back API after a failed rollout
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: kubectl -n labeler rollout undo deployment/labeler-api
+
+  web:
+    needs: api
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-web-${{ inputs.environment }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_AUTH_MODE: cognito
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_COGNITO_DOMAIN: ${{ vars.VITE_COGNITO_DOMAIN }}
+          VITE_COGNITO_CLIENT_ID: ${{ vars.VITE_COGNITO_CLIENT_ID }}
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Sync to S3 (hashed assets immutable, index.html never cached)
+        run: |
+          aws s3 sync dist "s3://${WEB_BUCKET}" --delete \
+            --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp dist/index.html "s3://${WEB_BUCKET}/index.html" \
+            --cache-control "no-cache"
+      - run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/index.html" "/"
+
+  smoke:
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      API_URL: ${{ vars.VITE_API_URL }}
+      WEB_URL: ${{ vars.WEB_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+      - name: Smoke test
+        run: scripts/smoke-test.sh "$API_URL" "$WEB_URL"

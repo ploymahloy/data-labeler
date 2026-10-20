@@ -12,6 +12,7 @@ const read = (): Session | null => {
 };
 
 let current: Session | null = read();
+const listeners = new Set<(session: Session | null) => void>();
 
 export const getSession = (): Session | null => current;
 
@@ -22,4 +23,13 @@ export const saveSession = (next: Session | null): void => {
   current = next;
   if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
   else localStorage.removeItem(SESSION_KEY);
+  listeners.forEach((listener) => listener(next));
+};
+
+/** Lets React state follow session changes made outside components (e.g. a 401 refresh). */
+export const subscribeSession = (listener: (session: Session | null) => void): (() => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };

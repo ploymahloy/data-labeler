@@ -50,6 +50,12 @@ services:
     command: ["alembic", "upgrade", "head"]
     environment: &backend-env
       DATABASE_URL: postgresql+asyncpg://labeler:labeler@db:5432/labeler
+      ENVIRONMENT: local
+      # Browser e2e and load tests make bursts of calls as a few users.
+      RATE_LIMIT_ENABLED: "false"
+      # Production waits out the presigned-upload window before a batch can be deleted; local
+      # development and the e2e suite do not need to.
+      BATCH_DELETE_COOLDOWN_SECONDS: "0"
       AUTH_MODE: dev
       DEV_AUTH_SECRET: local-dev-secret-change-me-0123456789abcdef
       S3_BUCKET: labeler-images
@@ -58,7 +64,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-east-1
-      CORS_ORIGINS: '["http://localhost:5173"]'
+      CORS_ORIGINS: '["http://localhost:5173","http://localhost:5174"]'
     depends_on:
       db:
         condition: service_healthy

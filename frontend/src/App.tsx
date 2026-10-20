@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { BatchDetailPage } from "./pages/BatchDetailPage";
 import { BatchesPage } from "./pages/BatchesPage";
@@ -23,6 +24,7 @@ export const App = () => (
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route element={<Layout />}>
             <Route path="/" element={<BatchesPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/batches/:batchId" element={<BatchDetailPage />} />
             <Route path="/batches/:batchId/upload" element={<UploadPage />} />
             <Route path="/batches/:batchId/label" element={<LabelPage />} />

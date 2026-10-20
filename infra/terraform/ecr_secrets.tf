@@ -1,5 +1,5 @@
 resource "aws_ecr_repository" "backend" {
-  name                 = "${var.name}-backend"
+  name                 = "${local.prefix}-backend"
   image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
@@ -36,7 +36,7 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
-    database_url               = "postgresql+asyncpg://${aws_db_instance.main.username}:${random_password.db.result}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}?ssl=require"
+    database_url               = "postgresql+asyncpg://${aws_db_instance.main.username}:${random_password.db.result}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}"
     cloudfront_private_key_pem = tls_private_key.cloudfront_signer.private_key_pem
   })
 }

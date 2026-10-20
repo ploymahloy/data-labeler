@@ -5,6 +5,11 @@ kind: Kustomization
 resources:
   - ../../base
 
+images:
+  - name: labeler-backend
+    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-prod-backend
+    newTag: latest
+
 patches:
   - target:
       kind: ServiceAccount
@@ -52,6 +57,10 @@ patches:
       - op: replace
         path: /metadata/annotations/alb.ingress.kubernetes.io~1certificate-arn
         value: arn:aws:acm:us-east-1:000000000000:certificate/REPLACE_ME
+      - op: add
+        # terraform output api_waf_acl_arn
+        path: /metadata/annotations/alb.ingress.kubernetes.io~1wafv2-acl-arn
+        value: arn:aws:wafv2:us-east-1:000000000000:regional/webacl/data-labeler-prod-api/REPLACE_ME
       - op: replace
         path: /spec/rules/0/host
         value: api.labeler.example.com

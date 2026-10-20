@@ -13,6 +13,11 @@ export const Layout = () => {
         <Link to="/" className="header__brand">
           Data Labeler
         </Link>
+        {identity.roles.includes("admin") && (
+          <Link to="/admin/users" className="header__link">
+            Users
+          </Link>
+        )}
         <span className="header__user">
           {identity.email || identity.sub} <span className="muted">({identity.roles.join(", ") || "no roles"})</span>
           <button className="secondary" onClick={logout}>

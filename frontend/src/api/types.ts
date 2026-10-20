@@ -16,7 +16,14 @@ export type Batch = {
   status: string;
   created_at: string;
   created_by: string;
+  archived_at: string | null;
   counts: Partial<Record<ImageStatus, number>>;
+};
+
+export type BatchDeleteProgress = {
+  done: boolean;
+  objects_deleted: number;
+  images_deleted: number;
 };
 
 /** Normalized (0-1) bounding box with an entity name. `id` is client-generated. */
@@ -99,4 +106,18 @@ export type ReviewResult = {
   image_id: string;
   decision: "accepted" | "rejected";
   resulting_status: ImageStatus;
+};
+
+export type AdminUser = {
+  sub: string;
+  email: string;
+  enabled: boolean;
+  status: string;
+  roles: Role[];
+  created_at: string | null;
+};
+
+export type AdminUsersPage = {
+  users: AdminUser[];
+  next_token: string | null;
 };
