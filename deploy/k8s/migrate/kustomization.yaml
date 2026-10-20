@@ -1,0 +1,15 @@
+# Applied by CI *before* rolling out a new API version:
+#   kubectl -n labeler delete job labeler-migrate --ignore-not-found
+#   kubectl apply -k deploy/k8s/migrate && kubectl -n labeler wait --for=condition=complete job/labeler-migrate
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: labeler
+
+resources:
+  - migrate-job.yaml
+
+images:
+  - name: labeler-backend
+    newName: 000000000000.dkr.ecr.us-east-1.amazonaws.com/data-labeler-backend
+    newTag: latest

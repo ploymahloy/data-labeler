@@ -1,0 +1,15 @@
+region                = "us-east-1"
+environment           = "prod"
+cognito_domain_prefix = "my-company-labeler" # must be globally unique
+
+# Optional custom domain for the SPA (cert must be in us-east-1)
+# web_domain          = "labeler.example.com"
+# web_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+
+# CI/CD via GitHub OIDC
+# github_repository = "my-org/data-labeler"
+
+# Cheaper non-prod
+# single_nat_gateway     = true
+# db_multi_az            = false
+# db_deletion_protection = false

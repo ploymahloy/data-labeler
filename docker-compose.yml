@@ -1,0 +1,86 @@
+name: data-labeler
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: labeler
+      POSTGRES_PASSWORD: labeler
+      POSTGRES_DB: labeler
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labeler -d labeler"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: s3
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal s3 ls"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  s3-init:
+    image: amazon/aws-cli:latest
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        aws --endpoint-url http://localstack:4566 s3 mb s3://labeler-images || true
+        aws --endpoint-url http://localstack:4566 s3api put-bucket-cors --bucket labeler-images --cors-configuration '{"CORSRules":[{"AllowedOrigins":["*"],"AllowedMethods":["GET","PUT","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"]}]}'
+
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment: &backend-env
+      DATABASE_URL: postgresql+asyncpg://labeler:labeler@db:5432/labeler
+      AUTH_MODE: dev
+      DEV_AUTH_SECRET: local-dev-secret-change-me-0123456789abcdef
+      S3_BUCKET: labeler-images
+      S3_ENDPOINT_URL: http://localstack:4566
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      CORS_ORIGINS: '["http://localhost:5173"]'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./backend
+    environment: *backend-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      s3-init:
+        condition: service_completed_successfully
+
+  reaper:
+    build: ./backend
+    command: ["sh", "-c", "while true; do python -m app.reaper; sleep 30; done"]
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

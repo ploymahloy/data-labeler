@@ -1,0 +1,57 @@
+# Production overlay. Fill the REPLACE_ME values from `terraform output` (see README, "Deploy").
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: ServiceAccount
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::000000000000:role/data-labeler-prod-api
+  - target:
+      kind: ConfigMap
+      name: labeler-api-config
+    patch: |-
+      - op: replace
+        path: /data/COGNITO_USER_POOL_ID
+        value: us-east-1_REPLACE_ME
+      - op: replace
+        path: /data/COGNITO_CLIENT_ID
+        value: REPLACE_ME
+      - op: replace
+        path: /data/S3_BUCKET
+        value: data-labeler-prod-images
+      - op: replace
+        path: /data/CLOUDFRONT_DOMAIN
+        value: REPLACE_ME.cloudfront.net
+      - op: replace
+        path: /data/CLOUDFRONT_KEY_PAIR_ID
+        value: REPLACE_ME
+      - op: replace
+        path: /data/CORS_ORIGINS
+        value: '["https://labeler.example.com"]'
+  - target:
+      kind: ExternalSecret
+      name: labeler-api-secrets
+    patch: |-
+      - op: replace
+        path: /spec/data/0/remoteRef/key
+        value: data-labeler-prod/app
+      - op: replace
+        path: /spec/data/1/remoteRef/key
+        value: data-labeler-prod/app
+  - target:
+      kind: Ingress
+      name: labeler-api
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/alb.ingress.kubernetes.io~1certificate-arn
+        value: arn:aws:acm:us-east-1:000000000000:certificate/REPLACE_ME
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.labeler.example.com

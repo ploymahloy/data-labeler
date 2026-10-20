@@ -1,0 +1,376 @@
+:root {
+  --fg: #1c2230;
+  --muted: #667085;
+  --bg: #f6f7f9;
+  --card: #fff;
+  --border: #d9dde5;
+  --primary: #2459d6;
+  --danger: #c62828;
+  --warn: #8a5a00;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--primary);
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 1.25rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.header__brand {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.header__user {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.page--narrow {
+  max-width: 460px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  margin: 0.75rem 0;
+}
+
+.card.error,
+p.error,
+.error {
+  color: var(--danger);
+}
+
+.card.warning {
+  border-color: #e0b45c;
+  background: #fff8e8;
+  color: var(--warn);
+}
+
+.warning-text {
+  color: var(--warn);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.row--between {
+  justify-content: space-between;
+}
+
+button,
+a.button {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--primary);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0.2rem 0;
+  text-align: left;
+}
+
+button.icon {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0 0.4rem;
+  font-size: 1.1rem;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+textarea {
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+label {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+label.inline {
+  display: inline-block;
+  margin-right: 1rem;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0.5rem 0 1rem;
+}
+
+.batch-list {
+  list-style: none;
+  padding: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--card);
+}
+
+.dropzone--active {
+  border-color: var(--primary);
+  background: #eef3ff;
+}
+
+/* ---- labeling workspace ------------------------------------------------ */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  align-items: start;
+}
+
+.workspace__side {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.box-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.box-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.box-list li.selected {
+  background: #eef3ff;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+  margin-right: 0.4rem;
+}
+
+.canvas {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+  border: 1px solid var(--border);
+  background: #222;
+}
+
+.canvas--readonly {
+  cursor: default;
+}
+
+.canvas__image {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  pointer-events: none;
+}
+
+.box {
+  position: absolute;
+  border: 2px solid;
+  cursor: move;
+  line-height: 1.2;
+}
+
+.canvas--readonly .box {
+  cursor: default;
+}
+
+.box--selected {
+  border-width: 3px;
+  background: rgb(255 255 255 / 12%);
+}
+
+.box--invalid {
+  border-style: dashed;
+}
+
+.box--draft {
+  border: 2px dashed #fff;
+  background: rgb(255 255 255 / 15%);
+  pointer-events: none;
+}
+
+.box__label {
+  position: absolute;
+  left: -2px;
+  top: -1.4rem;
+  font-size: 0.75rem;
+  color: #fff;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px 3px 0 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border: 2px solid var(--primary);
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.handle--nw { left: 0; top: 0; cursor: nwse-resize; }
+.handle--n { left: 50%; top: 0; cursor: ns-resize; }
+.handle--ne { left: 100%; top: 0; cursor: nesw-resize; }
+.handle--e { left: 100%; top: 50%; cursor: ew-resize; }
+.handle--se { left: 100%; top: 100%; cursor: nwse-resize; }
+.handle--s { left: 50%; top: 100%; cursor: ns-resize; }
+.handle--sw { left: 0; top: 100%; cursor: nesw-resize; }
+.handle--w { left: 0; top: 50%; cursor: ew-resize; }
+
+.label-prompt {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 25%);
+  line-height: 1.4;
+  cursor: default;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.modal__body {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: min(480px, 92vw);
+}
+
+.modal__body textarea {
+  width: 100%;
+}
+
+kbd {
+  background: #eceff4;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  font-size: 0.8rem;
+}
+
+blockquote {
+  margin: 0.4rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid #e0b45c;
+}

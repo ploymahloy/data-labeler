@@ -1,0 +1,49 @@
+[project]
+name = "data-labeler-backend"
+version = "0.1.0"
+description = "Image bounding-box labeling API with lease-based locking and review/QA"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy[asyncio]>=2.0.30",
+  "asyncpg>=0.30",
+  "alembic>=1.13",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "boto3>=1.34",
+  "pyjwt[crypto]>=2.8",
+  "cryptography>=42",
+  "httpx>=0.27",
+  "pillow>=10.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "moto[server,s3]>=5.0",
+  "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+# FastAPI's `Depends(...)` in argument defaults is the framework idiom.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E501", "I001", "UP"]

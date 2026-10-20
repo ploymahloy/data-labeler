@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: labeler-api-config
+data:
+  AUTH_MODE: "cognito"
+  AWS_REGION: "us-east-1"
+  COGNITO_REGION: "us-east-1"
+  COGNITO_USER_POOL_ID: "REPLACE_ME"
+  COGNITO_CLIENT_ID: "REPLACE_ME"
+  S3_BUCKET: "REPLACE_ME"
+  # Browser uploads go straight to S3 over the accelerated (edge-routed) endpoint.
+  S3_USE_ACCELERATE: "true"
+  CLOUDFRONT_DOMAIN: "REPLACE_ME"
+  CLOUDFRONT_KEY_PAIR_ID: "REPLACE_ME"
+  CORS_ORIGINS: '["https://REPLACE_ME"]'
+  LEASE_MINUTES: "15"
+  MAX_REJECTIONS: "3"
+  REWORK_RESERVE_HOURS: "24"
