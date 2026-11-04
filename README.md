@@ -1,8 +1,15 @@
 # Data Labeler
 
-Image bounding-box labeling for globally distributed (English-speaking) teams. Users upload batches of images, drag boxes over objects, name each entity, and submit. A **different** user then reviews and accepts or rejects the work.
+A cloud-native image annotation platform designed for distributed teams, featuring concurrency-safe task allocation, independent review workflows, and automated infrastructure deployment.
 
-**Stack:** React 19 + TypeScript (Vite), Python FastAPI + SQLAlchemy 2 (async) + Postgres, AWS (Cognito, S3, CloudFront, RDS, EKS), Kubernetes (Kustomize), Terraform.
+## Engineering Highlights
+
+- **Concurrency control:** PostgreSQL-backed leases and atomic task claiming prevent multiple annotators from working on the same image.
+- **Data integrity:** Database constraints and triggers enforce reviewer independence and prevent duplicate annotations.
+- **Reliable operations:** Idempotent writes, retry-safe uploads, and automated lease recovery.
+- **Cloud architecture:** AWS EKS, RDS, S3, CloudFront, Cognito, and Terraform.
+- **Testing:** Backend integration tests, frontend unit tests, cross-browser end-to-end tests, and concurrency load tests.
+- **Deployment:** GitHub Actions CI/CD with staging validation, production approval, and automated rollback.
 
 ## Guarantees and how they are enforced
 
