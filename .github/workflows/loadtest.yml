@@ -5,6 +5,7 @@ name: Load test
 on:
   schedule:
     - cron: "17 3 * * *"
+  suspend: true
   workflow_dispatch:
     inputs:
       labelers:
